@@ -8,7 +8,6 @@ def generate_password():
     while True:
         try:
             length = int(input("Введите длину пароля: "))
-            # Изменили условие: теперь минимальная длина — 1 символ
             if length < 1:
                 print("Длина пароля должна быть не менее 1 символа.")
                 continue
