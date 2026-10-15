@@ -1,0 +1,115 @@
+import threading
+import requests
+from bs4 import BeautifulSoup
+
+# Объект блокировки для синхронизации записи в общий файл
+file_lock = threading.Lock()
+
+# Общий файл для сохранения заголовков
+OUTPUT_FILE = "news_results.txt"
+
+
+def parse_lenta():
+    """Парсер для сайта Lenta.ru"""
+    url = "https://lenta.ru"
+    print("[Парсер Lenta] Запуск...")
+
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            # Способ 1: Ищем все h3 (все крупные блоки и эксклюзивы на Ленте завернуты в h3)
+            titles = soup.find_all("h3")
+
+            # Способ 2 (резервный): если h3 пустые, ищем по классам блоков новостей
+            if not titles:
+                titles = soup.find_all(["span", "div"], class_=["card-mini__title", "card-big__title"])
+
+            # Очищаем текст от лишних пробелов и переносов строк
+            news_list = []
+            for title in titles:
+                text = title.get_text(strip=True)
+                # Отсекаем служебные элементы интерфейса и слишком короткие строки
+                if text and len(text) > 15 and "Реклама" not in text:
+                    news_list.append(text)
+
+            print(f"[Парсер Lenta] Успешно собрано {len(news_list)} заголовков.")
+
+            # Синхронизированная запись
+            with file_lock:
+                with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
+                    f.write("=== НОВОСТИ С LENTA.RU ===\n")
+                    for news in news_list:
+                        f.write(f"- {news}\n")
+                    f.write("\n")
+                print("[Парсер Lenta] Данные сохранены.")
+        else:
+            print(f"[Парсер Lenta] Код ответа сервера: {response.status_code}")
+
+    except Exception as e:
+        print(f"[Парсер Lenta] Ошибка: {e}")
+
+
+def parse_rbc():
+    """Парсер для сайта RBC.ru"""
+    url = "https://rbc.ru"
+    print("[Парсер РБК] Запуск...")
+
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            # На РБК заголовки лежат в span с классами, содержащими 'title' или 'wrap'
+            # Используем лямбда-функцию для поиска элементов, у которых класс содержит нужные ключевые слова
+            titles = soup.find_all("span",
+                                   class_=lambda x: x and any(word in x for word in ["title", "wrap", "item__title"]))
+
+            news_list = []
+            for title in titles:
+                text = title.get_text(strip=True)
+                if text and len(text) > 15:
+                    news_list.append(text)
+
+            # Если ничего не нашли по классам, забираем все ссылки из новостных лент
+            if not news_list:
+                titles = soup.find_all("a", class_=lambda x: x and "news-feed__item" in x)
+                news_list = [t.get_text(strip=True) for t in titles if t.get_text(strip=True)]
+
+            print(f"[Парсер РБК] Успешно собрано {len(news_list)} заголовков.")
+
+            # Синхронизированная запись
+            with file_lock:
+                with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
+                    f.write("=== НОВОСТИ С RBC.RU ===\n")
+                    for news in news_list:
+                        f.write(f"- {news}\n")
+                    f.write("\n")
+                print("[Парсер РБК] Данные сохранены.")
+        else:
+            print(f"[Парсер РБК] Код ответа сервера: {response.status_code}")
+
+    except Exception as e:
+        print(f"[Парсер РБК] Ошибка: {e}")
+
+
+def main():
+    # Очищаем и подготавливаем файл
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        f.write("--- Результаты синхронизированного парсинга ---\n\n")
+
+    t1 = threading.Thread(target=parse_lenta)
+    t2 = threading.Thread(target=parse_rbc)
+
+    t1.start()
+    t2.start()
+
+    t1.join()
+    t2.join()
+
+    print("\n[Готово] Проверьте файл news_results.txt.")
+
+
+if __name__ == "__main__":
+    main()
